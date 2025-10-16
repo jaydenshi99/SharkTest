@@ -296,14 +296,40 @@ class ChessEngineBenchmark:
         print(f"{self.engine2_name} Crashes: {self.results['engine2_crashes']}")
         
         if self.results['total_games'] > 0:
+            # Calculate points (1 for win, 0.5 for draw, 0 for loss)
+            engine1_points = self.results['engine1_wins'] + (self.results['draws'] * 0.5)
+            engine2_points = self.results['engine2_wins'] + (self.results['draws'] * 0.5)
+            total_points = engine1_points + engine2_points
+            
+            # Calculate win rates
             engine1_win_rate = (self.results['engine1_wins'] / self.results['total_games']) * 100
             engine2_win_rate = (self.results['engine2_wins'] / self.results['total_games']) * 100
             draw_rate = (self.results['draws'] / self.results['total_games']) * 100
+            
+            # Calculate score (points / total possible points)
+            engine1_score = engine1_points / self.results['total_games'] if self.results['total_games'] > 0 else 0.5
+            engine2_score = engine2_points / self.results['total_games'] if self.results['total_games'] > 0 else 0.5
+            
+            print(f"\nPoints Breakdown:")
+            print(f"{self.engine1_name}: {engine1_points:.1f} points ({engine1_score:.3f} score)")
+            print(f"{self.engine2_name}: {engine2_points:.1f} points ({engine2_score:.3f} score)")
             
             print(f"\nWin Rates:")
             print(f"{self.engine1_name}: {engine1_win_rate:.1f}%")
             print(f"{self.engine2_name}: {engine2_win_rate:.1f}%")
             print(f"Draws: {draw_rate:.1f}%")
+            
+            # Calculate Elo difference
+            if engine1_score != 0.5 and engine1_score > 0 and engine1_score < 1:
+                import math
+                elo_diff = 400 * math.log10(engine1_score / (1 - engine1_score))
+                print(f"\nElo Difference:")
+                if elo_diff > 0:
+                    print(f"{self.engine1_name} is {abs(elo_diff):.0f} Elo points stronger than {self.engine2_name}")
+                else:
+                    print(f"{self.engine2_name} is {abs(elo_diff):.0f} Elo points stronger than {self.engine1_name}")
+            else:
+                print(f"\nElo Difference: Too close to call (scores too close to 50%)")
         
         print("="*60)
 
