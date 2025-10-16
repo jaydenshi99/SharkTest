@@ -30,7 +30,7 @@ class ChessEngineBenchmark:
     A class to handle chess engine benchmarking between two UCI engines.
     """
     
-    def __init__(self, engine1_project_dir: str, engine2_project_dir: str, time_per_move: float = 0.1):
+    def __init__(self, engine1_project_dir: str, engine2_project_dir: str, time_per_move: float = 0.1, fen_file: str = "fens/fen_positions.txt"):
         """
         Initialize the benchmark with two engine project directories and time per move.
         
@@ -38,10 +38,12 @@ class ChessEngineBenchmark:
             engine1_project_dir: Path to the first chess engine project directory
             engine2_project_dir: Path to the second chess engine project directory
             time_per_move: Time per move in seconds
+            fen_file: Path to the FEN positions file
         """
         self.engine1_project_dir = Path(engine1_project_dir)
         self.engine2_project_dir = Path(engine2_project_dir)
         self.time_per_move = time_per_move
+        self.fen_file = Path(fen_file)
         
         # Validate project directories
         if not self.engine1_project_dir.exists():
@@ -58,6 +60,18 @@ class ChessEngineBenchmark:
         if not engine2_executable.exists():
             raise FileNotFoundError(f"Engine 2 executable not found: {engine2_executable}")
         
+        # Load FEN positions
+        self.fen_positions = self.load_fen_positions()
+        
+        # Set engine names (append A/B if same name)
+        self.engine1_name = self.engine1_project_dir.name
+        self.engine2_name = self.engine2_project_dir.name
+        
+        if self.engine1_name == self.engine2_name:
+            self.engine1_name = f"{self.engine1_name}A"
+            self.engine2_name = f"{self.engine2_name}B"
+            logger.info(f"Same engine name detected, using: {self.engine1_name} vs {self.engine2_name}")
+        
         # Results tracking
         self.results = {
             'engine1_wins': 0,
@@ -65,18 +79,33 @@ class ChessEngineBenchmark:
             'draws': 0,
             'engine1_crashes': 0,
             'engine2_crashes': 0,
-            'total_games': 0
+            'total_games': 0,
+            'total_matches': 0
         }
         
-        logger.info(f"Initialized benchmark: {self.engine1_project_dir.name} vs {self.engine2_project_dir.name}")
+        logger.info(f"Initialized benchmark: {self.engine1_name} vs {self.engine2_name}")
         logger.info(f"Time per move: {self.time_per_move}s")
+        logger.info(f"Loaded {len(self.fen_positions)} FEN positions from {fen_file}")
     
-    def play_game(self, game_number: int, engine1_is_white: bool = True) -> Optional[chess.pgn.Game]:
+    def load_fen_positions(self) -> list:
+        """Load FEN positions from the specified file."""
+        try:
+            with open(self.fen_file, 'r') as f:
+                positions = [line.strip() for line in f if line.strip()]
+            logger.info(f"Successfully loaded {len(positions)} FEN positions")
+            return positions
+        except FileNotFoundError:
+            raise FileNotFoundError(f"FEN positions file not found: {self.fen_file}")
+        except Exception as e:
+            raise Exception(f"Error loading FEN positions: {e}")
+    
+    def play_game(self, game_number: int, fen_position: str, engine1_is_white: bool = True) -> Optional[chess.pgn.Game]:
         """
-        Play a single game between the two engines.
+        Play a single game between the two engines from a specific FEN position.
         
         Args:
             game_number: The game number for logging purposes
+            fen_position: The FEN position to start from
             engine1_is_white: Whether engine1 plays as white
             
         Returns:
@@ -84,16 +113,22 @@ class ChessEngineBenchmark:
         """
         logger.info(f"Starting game {game_number} - {'Engine1' if engine1_is_white else 'Engine2'} plays White")
         
-        # Create a new game
-        board = chess.Board()
+        # Create a game from the FEN position
+        try:
+            board = chess.Board(fen_position)
+        except ValueError as e:
+            logger.error(f"Invalid FEN position in game {game_number}: {fen_position}")
+            return None
+        
         game = chess.pgn.Game()
         game.headers["Event"] = f"Engine Benchmark Game {game_number}"
         game.headers["Site"] = "Computer"
         game.headers["Date"] = time.strftime("%Y.%m.%d")
         game.headers["Round"] = str(game_number)
-        game.headers["White"] = self.engine1_project_dir.name if engine1_is_white else self.engine2_project_dir.name
-        game.headers["Black"] = self.engine2_project_dir.name if engine1_is_white else self.engine1_project_dir.name
+        game.headers["White"] = self.engine1_name if engine1_is_white else self.engine2_name
+        game.headers["Black"] = self.engine2_name if engine1_is_white else self.engine1_name
         game.headers["TimeControl"] = f"{self.time_per_move}s per move"
+        game.headers["FEN"] = fen_position
         
         node = game
         
@@ -175,44 +210,66 @@ class ChessEngineBenchmark:
             logger.error(f"Failed to start engines for game {game_number}: {e}")
             return None
     
-    def run_benchmark(self, num_games: int) -> str:
+    def run_benchmark(self, num_matches: int) -> str:
         """
-        Run the complete benchmark between the two engines.
+        Run the complete benchmark between the two engines using FEN positions.
         
         Args:
-            num_games: Number of games to play
+            num_matches: Number of matches to play (each match = 2 games)
             
         Returns:
             Path to the generated PGN file
         """
-        logger.info(f"Starting benchmark: {num_games} games")
+        logger.info(f"Starting benchmark: {num_matches} matches ({num_matches * 2} games)")
         
-        # Create timestamped PGN filename
+        # Check if we have enough FEN positions
+        if num_matches > len(self.fen_positions):
+            logger.warning(f"Requested {num_matches} matches but only {len(self.fen_positions)} FEN positions available")
+            num_matches = len(self.fen_positions)
+        
+        # Create tests directory if it doesn't exist
+        tests_dir = Path("tests")
+        tests_dir.mkdir(exist_ok=True)
+        
+        # Create timestamped PGN filename in tests directory
         timestamp = int(time.time())
-        pgn_filename = f"match_{timestamp}.pgn"
-        pgn_path = Path(pgn_filename)
+        pgn_filename = f"fen_match_{timestamp}.pgn"
+        pgn_path = tests_dir / pgn_filename
         
         games_played = []
         
         try:
-            for game_num in range(1, num_games + 1):
-                # Alternate which engine plays white
-                engine1_is_white = (game_num % 2 == 1)
+            game_counter = 1
+            
+            for match_num in range(1, num_matches + 1):
+                fen_position = self.fen_positions[match_num - 1]  # Use ith FEN for ith match
                 
-                game = self.play_game(game_num, engine1_is_white)
-                if game:
-                    games_played.append(game)
+                logger.info(f"Starting match {match_num} with FEN: {fen_position[:50]}...")
+                
+                # Game 1: Engine 1 plays White
+                game1 = self.play_game(game_counter, fen_position, engine1_is_white=True)
+                if game1:
+                    games_played.append(game1)
+                    game_counter += 1
+                
+                # Game 2: Engine 2 plays White (same FEN position)
+                game2 = self.play_game(game_counter, fen_position, engine1_is_white=False)
+                if game2:
+                    games_played.append(game2)
+                    game_counter += 1
+                
+                self.results['total_matches'] += 1
                 
                 # Print progress
-                if game_num % 10 == 0 or game_num == num_games:
-                    logger.info(f"Progress: {game_num}/{num_games} games completed")
+                if match_num % 5 == 0 or match_num == num_matches:
+                    logger.info(f"Progress: {match_num}/{num_matches} matches completed")
             
             # Save all games to PGN file
             with open(pgn_path, 'w') as pgn_file:
                 for game in games_played:
                     print(game, file=pgn_file, end='\n\n')
             
-            logger.info(f"Benchmark completed! Results saved to: {pgn_filename}")
+            logger.info(f"Benchmark completed! Results saved to: tests/{pgn_filename}")
             return str(pgn_path)
             
         except KeyboardInterrupt:
@@ -222,20 +279,21 @@ class ChessEngineBenchmark:
                 with open(pgn_path, 'w') as pgn_file:
                     for game in games_played:
                         print(game, file=pgn_file, end='\n\n')
-                logger.info(f"Partial results saved to: {pgn_filename}")
+                logger.info(f"Partial results saved to: tests/{pgn_filename}")
             return str(pgn_path)
     
     def print_summary(self):
         """Print a summary of the benchmark results."""
         print("\n" + "="*60)
-        print("BENCHMARK RESULTS SUMMARY")
+        print("FEN POSITION BENCHMARK RESULTS SUMMARY")
         print("="*60)
+        print(f"Total Matches: {self.results['total_matches']}")
         print(f"Total Games: {self.results['total_games']}")
-        print(f"{self.engine1_project_dir.name} Wins: {self.results['engine1_wins']}")
-        print(f"{self.engine2_project_dir.name} Wins: {self.results['engine2_wins']}")
+        print(f"{self.engine1_name} Wins: {self.results['engine1_wins']}")
+        print(f"{self.engine2_name} Wins: {self.results['engine2_wins']}")
         print(f"Draws: {self.results['draws']}")
-        print(f"{self.engine1_project_dir.name} Crashes: {self.results['engine1_crashes']}")
-        print(f"{self.engine2_project_dir.name} Crashes: {self.results['engine2_crashes']}")
+        print(f"{self.engine1_name} Crashes: {self.results['engine1_crashes']}")
+        print(f"{self.engine2_name} Crashes: {self.results['engine2_crashes']}")
         
         if self.results['total_games'] > 0:
             engine1_win_rate = (self.results['engine1_wins'] / self.results['total_games']) * 100
@@ -243,8 +301,8 @@ class ChessEngineBenchmark:
             draw_rate = (self.results['draws'] / self.results['total_games']) * 100
             
             print(f"\nWin Rates:")
-            print(f"{self.engine1_project_dir.name}: {engine1_win_rate:.1f}%")
-            print(f"{self.engine2_project_dir.name}: {engine2_win_rate:.1f}%")
+            print(f"{self.engine1_name}: {engine1_win_rate:.1f}%")
+            print(f"{self.engine2_name}: {engine2_win_rate:.1f}%")
             print(f"Draws: {draw_rate:.1f}%")
         
         print("="*60)
@@ -252,11 +310,12 @@ class ChessEngineBenchmark:
 
 def main():
     """Main function to run the chess engine benchmark."""
-    parser = argparse.ArgumentParser(description="Benchmark two UCI chess engines")
+    parser = argparse.ArgumentParser(description="Benchmark two UCI chess engines using FEN positions")
     parser.add_argument("engine1_project_dir", help="Path to first chess engine project directory")
     parser.add_argument("engine2_project_dir", help="Path to second chess engine project directory")
-    parser.add_argument("-n", "--games", type=int, default=10, help="Number of games to play (default: 10)")
+    parser.add_argument("-m", "--matches", type=int, default=5, help="Number of matches to play (default: 5)")
     parser.add_argument("-t", "--time", type=float, default=0.1, help="Time per move in seconds (default: 0.1)")
+    parser.add_argument("-f", "--fen-file", default="fens/fen_positions.txt", help="FEN positions file (default: fens/fen_positions.txt)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     
     args = parser.parse_args()
@@ -266,19 +325,21 @@ def main():
     
     try:
         # Create benchmark instance
-        benchmark = ChessEngineBenchmark(args.engine1_project_dir, args.engine2_project_dir, args.time)
+        benchmark = ChessEngineBenchmark(args.engine1_project_dir, args.engine2_project_dir, args.time, args.fen_file)
         
         # Run the benchmark
-        pgn_file = benchmark.run_benchmark(args.games)
+        pgn_file = benchmark.run_benchmark(args.matches)
         
         # Print results
         benchmark.print_summary()
         
         print(f"\nGames saved to: {pgn_file}")
         print("You can open this file in chess software like Lichess, ChessBase, or any PGN viewer.")
+        print(f"All test files are saved in the 'tests' directory.")
+        print(f"Each match consists of 2 games: Engine1 as White, Engine2 as White (same FEN position)")
         
     except FileNotFoundError as e:
-        logger.error(f"Engine project directory or executable not found: {e}")
+        logger.error(f"Engine project directory, executable, or FEN file not found: {e}")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
