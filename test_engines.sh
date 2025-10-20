@@ -15,8 +15,8 @@ echo "Virtual environment activated!"
 echo ""
 
 # Set default values
-ENGINE1="/Users/jaydenshi/Documents/Code/Projects/SticksharkVersions/1.0"
-ENGINE2="/Users/jaydenshi/Documents/Code/Projects/SticksharkVersions/1.0"
+ENGINE1="/Users/jaydenshi/Documents/Code/Projects/SticksharkVersions/1.1.2"
+ENGINE2="/Users/jaydenshi/Documents/Code/Projects/SticksharkVersions/1.1.1"
 MATCHES=5
 TIME=0.1
 FEN_FILE="fens/fen_positions.txt"

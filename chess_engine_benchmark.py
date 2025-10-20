@@ -82,6 +82,8 @@ class ChessEngineBenchmark:
             'total_games': 0,
             'total_matches': 0
         }
+
+        self.pgn_location = ""
         
         logger.info(f"Initialized benchmark: {self.engine1_name} vs {self.engine2_name}")
         logger.info(f"Time per move: {self.time_per_move}s")
@@ -187,13 +189,13 @@ class ChessEngineBenchmark:
                 
                 # Determine game result
                 if board.is_checkmate():
-                    winner = "White" if board.turn == chess.BLACK else "Black"
+                    winner = "Black" if board.turn == chess.WHITE else "White"
                     if (winner == "White" and engine1_is_white) or (winner == "Black" and not engine1_is_white):
                         self.results['engine1_wins'] += 1
-                        game.headers["Result"] = "1-0"
+                        game.headers["Result"] = "1-0" if engine1_is_white else "0-1"
                     else:
                         self.results['engine2_wins'] += 1
-                        game.headers["Result"] = "0-1"
+                        game.headers["Result"] = "0-1" if engine1_is_white else "1-0"
                 elif board.is_stalemate() or board.is_insufficient_material() or board.is_seventyfive_moves():
                     self.results['draws'] += 1
                     game.headers["Result"] = "1/2-1/2"
@@ -234,6 +236,7 @@ class ChessEngineBenchmark:
         # Create timestamped PGN filename in tests directory
         timestamp = int(time.time())
         pgn_filename = f"fen_match_{timestamp}.pgn"
+        self.pgn_location = pgn_filename
         pgn_path = tests_dir / pgn_filename
         
         games_played = []
@@ -259,6 +262,19 @@ class ChessEngineBenchmark:
                     game_counter += 1
                 
                 self.results['total_matches'] += 1
+                
+                # Debug: Print win statistics after each match
+                logger.debug(f"Match {match_num} completed - Current Statistics:")
+                logger.debug(f"  {self.engine1_name} Wins: {self.results['engine1_wins']}")
+                logger.debug(f"  {self.engine2_name} Wins: {self.results['engine2_wins']}")
+                logger.debug(f"  Draws: {self.results['draws']}")
+                logger.debug(f"  Total Games: {self.results['total_games']}")
+                
+                if self.results['total_games'] > 0:
+                    engine1_win_rate = (self.results['engine1_wins'] / self.results['total_games']) * 100
+                    engine2_win_rate = (self.results['engine2_wins'] / self.results['total_games']) * 100
+                    draw_rate = (self.results['draws'] / self.results['total_games']) * 100
+                    logger.debug(f"  Win Rates: {self.engine1_name} {engine1_win_rate:.1f}%, {self.engine2_name} {engine2_win_rate:.1f}%, Draws {draw_rate:.1f}%")
                 
                 # Print progress
                 if match_num % 5 == 0 or match_num == num_matches:
@@ -287,6 +303,9 @@ class ChessEngineBenchmark:
         print("\n" + "="*60)
         print("FEN POSITION BENCHMARK RESULTS SUMMARY")
         print("="*60)
+        print(f"PGN: {self.pgn_location}")
+        print(f"Time Control: {self.time_per_move} sec/move")
+        print(f"Total Games: {self.results['total_games']}")
         print(f"Total Matches: {self.results['total_matches']}")
         print(f"Total Games: {self.results['total_games']}")
         print(f"{self.engine1_name} Wins: {self.results['engine1_wins']}")
